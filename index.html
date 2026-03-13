@@ -115,6 +115,10 @@ and requires understanding the broader project structure.
                     First, run <code>get_pr_metrics.py</code> twice (once for each PR group) to generate two metrics files. Then use those files as inputs:<br>
                     <em>Run:</em> <code>python compare_pr_metrics.py --file-a curated_human_created_metrics.csv --file-b pure_human_metrics.csv --label-a Curated_pr --label-b Pure_human</code>
                 </li>
+                <li>
+                  <code>get_number_reviewer.py</code> - Calculate the number of unique reviewers for each PR and add it as a metric to the metrics CSV files.<br>
+                  <em>Run:</em> <code>Get the github api key and set the path to the csv files that have PR urls</code><br>
+                </li>
 			</ul>
 
 
@@ -468,17 +472,35 @@ h4 { color: #555; font-size: 15px; margin: 25px 0 10px 0; font-weight: 600; }
           <td>0.5035</td>
           <td class="label-large">Large</td>
         </tr>
+        <tr>
+          <td>Number_of_Reviewers</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0.41</td>
+          <td>1</td>
+          <td>2</td>
+          <td>0</td>
+          <td>1</td>
+          <td>1</td>
+          <td>1.33</td>
+          <td>2</td>
+          <td>3</td>
+          <td>0.0000</td>
+          <td>0.5580</td>
+          <td class="label-large">Large</td>
+        </tr>
       </tbody>
     </table>
   </div>
 
-  <h4>Agent-created Curated PRs vs. Purely Human PRs <a href="Data/Quantitative analysis results/pure_agent_pure_human.csv" class="csv-link" download>📥 Download CSV</a></h4>
+  <h4>Pure Agent PRs vs. Pure Human PRs <a href="Data/Quantitative analysis results/pure_agent_pure_human.csv" class="csv-link" download>📥 Download CSV</a></h4>
   <div class="table-scroll">
     <table id="table-pure-agent" class="dataframe compact">
       <thead>
         <tr>
           <th rowspan="2">Metric</th>
-          <th colspan="6">Agent-curated (n=45)</th>
+          <th colspan="6">Pure Agent(n=45)</th>
           <th colspan="6">Pure Human (n=45)</th>
           <th colspan="3">Statistical Analysis</th>
         </tr>
@@ -698,6 +720,24 @@ h4 { color: #555; font-size: 15px; margin: 25px 0 10px 0; font-weight: 600; }
           <td>0.0301</td>
           <td>0.3100</td>
           <td class="label-small">Small</td>
+        </tr>
+        <tr>
+          <td>Number_of_Reviewers</td>
+          <td>0</td>
+          <td>0</td>
+          <td>2</td>
+          <td>1.75</td>
+          <td>3</td>
+          <td>6</td>
+          <td>0</td>
+          <td>1</td>
+          <td>1</td>
+          <td>1.33</td>
+          <td>2</td>
+          <td>3</td>
+          <td>0.0001</td>
+          <td>-0.4300</td>
+          <td class="label-small">Medium</td>
         </tr>
       </tbody>
     </table>
@@ -929,6 +969,24 @@ h4 { color: #555; font-size: 15px; margin: 25px 0 10px 0; font-weight: 600; }
           <td>0.0182</td>
           <td>0.3472</td>
           <td class="label-medium">Medium</td>
+        </tr>
+        <tr>
+          <td>Number_of_Reviewers</td>
+          <td>0</td>
+          <td>0</td>
+          <td>1</td>
+          <td>0.93</td>
+          <td>2</td>
+          <td>4</td>
+          <td>0</td>
+          <td>1</td>
+          <td>1</td>
+          <td>1.33</td>
+          <td>2</td>
+          <td>3</td>
+          <td>0.0004</td>
+          <td>0.3486</td>
+          <td class="label-small">Medium</td>
         </tr>
       </tbody>
     </table>
