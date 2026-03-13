@@ -1,0 +1,83 @@
+.verticalMenu{
+    margin:-1% +30% +4.5% -12%;	
+    font-size: 1.0em;
+        color: #3ec7b9;
+    }
+    
+    #stickynav {
+      display: block;
+      height: 35px;
+      width: 100%;
+      z-index: 9999;
+    }
+    
+    #stickynav #nav2 { 
+        position: fixed; 
+        z-index: 9999;
+        margin: 4% 19% -8% 0%;
+         }
+    #stickynav #nav2 li { display: block; }
+    #stickynav #nav2 li a {
+      display: block;
+      margin-right: 8px;
+      padding: 5px 7px;
+      -webkit-border-radius: 4px;
+      -moz-border-radius: 4px;
+      border-radius: 4px;
+    }
+    #stickynav #nav2 li a:hover { 
+      text-decoration: none;
+      background: #237e05;
+    }
+    
+    #stickynav #nav2 li a.nav-active {
+      color: #000;
+    }
+    
+    .bibtex {
+        border: solid 1px #ccc;
+        background: #F2F2F2;
+        padding: 5px 15px;
+        border-radius: 2px;
+        font-family: consolas, monospace;
+        margin: 10px 0 20px;
+    }
+    .bibtex pre {
+        margin: 0;
+        padding: 0
+    }
+
+    pre[class*="language-"] {
+      background: #f8f8f8; /* or your preferred background */
+      box-shadow: none;
+      border-left: none;
+    }
+    .token {
+      box-shadow: none !important;
+    }
+    code {
+      background-image: none !important;
+    }
+
+    /* Title fixes */
+#sitetitle h1 { margin: 0; }
+#sitetitle h1 a {
+  display: block;
+  line-height: 1.15;          /* was too small -> caused overlap */
+  letter-spacing: 0;           /* optional: remove tight tracking */
+  text-shadow: none;           /* remove “double” look */
+  -webkit-text-stroke: 0;      /* just in case an outline is applied */
+  word-break: normal;
+  white-space: normal;
+}
+
+/* If the template uses pseudo-elements to duplicate the text */
+#sitetitle h1 a::before,
+#sitetitle h1 a::after {
+  content: none !important;
+}
+
+/* Optional: scale the heading responsively so it doesn’t wrap awkwardly */
+#sitetitle h1 a {
+  font-size: clamp(32px, 6vw, 72px);
+}
