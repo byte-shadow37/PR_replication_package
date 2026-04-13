@@ -4,13 +4,13 @@
 Fetch comprehensive PR metrics (including code churn line counts) for a given set of PR IDs.
 
 Inputs:
-- CSV: human_pull_request.csv  (must contain columns: id, number, repo_url, html_url, created_at, closed_at, merged_at, state, body)
+- CSV: /mnt/data/human_pull_request.csv  (must contain columns: id, number, repo_url, html_url, created_at, closed_at, merged_at, state, body)
 - GitHub Token: set env var GITHUB_TOKEN="..."
 - ID list: hardcoded below (can override via CLI --ids)
 
 Outputs:
-- pr_metrics_full.csv     (row per PR with metrics)
-- pr_metrics_summary.csv  (overall summary: acceptance rate, averages, etc.)
+- /mnt/data/pr_metrics_full.csv     (row per PR with metrics)
+- /mnt/data/pr_metrics_summary.csv  (overall summary: acceptance rate, averages, etc.)
 
 Metrics per PR:
 - acceptance (closed_or_merged: bool, merged: bool, state)
@@ -21,6 +21,7 @@ Metrics per PR:
 - additions, deletions, code_churn (additions+deletions)  [from PR detail]
 - review_iterations        [# of reviews from /pulls/{number}/reviews]
 - total_comments           [issue comments + review comments]
+- number_of_reviewers      [unique reviewers seen in review submissions or review requests]
 - reviewer_workload_hours  [avg time from review_requested -> review submitted, per review]
 
 Reviewer workload notes:
@@ -43,47 +44,11 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 import requests
 import pandas as pd
+GITHUB_TOKEN = ""
 
-CSV_PATH = "pull_request.csv"
-OUT_FULL = "curated_pr_metrics_agent_created.csv"
-OUT_SUMMARY = "curated_pr_metrics_agent_created_summary.csv"
-
-# ---- Fill these 40 IDs by default (can be overridden via --ids) ----
-DEFAULT_IDS = [
-3129054890,
-3123194825,
-3230608495,
-3218773894,
-3211119439,
-3141571114,
-3252779862,
-3189667414,
-3271620469,
-3078737490,
-3090639461,
-3200393827,
-3189276011,
-3088559123,
-3154494868,
-3276421841,
-3097148026,
-3110865105,
-3146354845,
-3158557487,
-2858594058,
-3116826149,
-3043613876,
-3221900086,
-2997597213,
-3173734154,
-2951977419,
-3196981192,
-3072159278,
-3205615159,
-3205629566,
-3038010445,
-3151982889
-]
+CSV_PATH = "experiment_mix_merged.csv"
+OUT_FULL = "mix_summary.csv"
+OUT_SUMMARY = "test.csv"
 
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -111,8 +76,7 @@ def parse_owner_repo_from_repo_url(repo_url: str):
         return None, None
 
 def gh_headers():
-    raw = os.environ.get("GITHUB_TOKEN", "")
-    # Strip whitespace and accidental quotes to avoid 401 Bad credentials
+    raw = GITHUB_TOKEN or os.environ.get("GITHUB_TOKEN", "")
     token = raw.strip().strip('"').strip("'")
     hdrs = {"Accept": "application/vnd.github+json"}
     if token:
@@ -217,19 +181,37 @@ def collect_review_comments(owner, repo, number):
     } for c in comments]
 
 def collect_issue_events(owner, repo, number):
-    # To find "review_requested" timestamps
+    # To find reviewer-related timeline events
     url = f"https://api.github.com/repos/{owner}/{repo}/issues/{number}/events"
     events = gh_get(url) or []
     out = []
     for e in events:
         etype = e.get("event")
-        if etype == "review_requested":
+        if etype in {"review_requested", "review_request_removed"}:
             out.append({
                 "event": etype,
                 "created_at": e.get("created_at"),
                 "requested_reviewer": (e.get("requested_reviewer") or {}).get("login"),
             })
     return out
+
+def count_number_of_reviewers(reviews, issue_events):
+    """
+    Count unique reviewers seen either in submitted reviews or in review request events.
+    """
+    reviewers = set()
+
+    for rv in reviews or []:
+        login = rv.get("user_login")
+        if login:
+            reviewers.add(login)
+
+    for ev in issue_events or []:
+        login = ev.get("requested_reviewer")
+        if login:
+            reviewers.add(login)
+
+    return len(reviewers) if reviewers else 0
 
 def estimate_reviewer_workload_hours(pr_created_at_dt, reviews, review_requested_events):
     """
@@ -272,26 +254,28 @@ def estimate_reviewer_workload_hours(pr_created_at_dt, reviews, review_requested
 
 def main():
     args = parse_args()
-    ids = None
-    if args.ids:
-        ids = [int(x.strip()) for x in args.ids.split(",") if x.strip()]
-    else:
-        ids = DEFAULT_IDS
 
     if not os.path.exists(args.csv):
         print(f"[ERROR] CSV not found: {args.csv}", file=sys.stderr)
         sys.exit(1)
 
     df = pd.read_csv(args.csv)
+    df = df.loc[:, ~df.columns.astype(str).str.startswith("Unnamed:")].copy()
+    df = df.rename(columns={
+        "repo_api_url": "repo_url",
+        "user_login": "user",
+    })
     need_cols = {"id","number","repo_url","html_url","created_at","closed_at","merged_at","state","body","title","user","user_id"}
     missing = need_cols - set(df.columns)
     if missing:
         print(f"[ERROR] CSV missing columns: {missing}", file=sys.stderr)
         sys.exit(1)
 
-    subset = df[df["id"].isin(ids)].copy()
+    # 不再按 id 过滤，直接使用整个 CSV
+    subset = df.copy()
+    subset = subset.dropna(subset=["id", "number", "repo_url", "html_url"]).copy()
     if subset.empty:
-        print("[WARN] No rows matched given IDs.", file=sys.stderr)
+        print("[WARN] CSV is empty after dropping rows with missing required values.", file=sys.stderr)
 
     # Normalize datetimes
     subset["created_at_dt"] = pd.to_datetime(subset["created_at"], utc=True, errors="coerce")
@@ -301,8 +285,12 @@ def main():
 
     rows = []
     for _, row in subset.iterrows():
-        pid = int(row["id"])
-        number = int(row["number"])
+        try:
+            pid = int(row["id"])
+            number = int(row["number"])
+        except (TypeError, ValueError):
+            print(f"[WARN] Skipping row with invalid id/number: id={row.get('id')} number={row.get('number')}", file=sys.stderr)
+            continue
         repo_url = row["repo_url"]
         owner, repo = parse_owner_repo_from_repo_url(repo_url)
         if not owner or not repo:
@@ -330,6 +318,7 @@ def main():
         deletions = None
         code_churn = None
         review_iterations = None
+        number_of_reviewers = None
         total_comments = None
         reviewer_workload_hours = None
 
@@ -346,6 +335,10 @@ def main():
             reviews = collect_reviews(owner, repo, number)
             review_iterations = len(reviews) if reviews is not None else None
 
+            # Reviewer-related timeline events
+            issue_events = collect_issue_events(owner, repo, number)
+            number_of_reviewers = count_number_of_reviewers(reviews, issue_events)
+
             # Comments (issue + review comments)
             icomments = collect_issue_comments(owner, repo, number)
             rcomments = collect_review_comments(owner, repo, number)
@@ -353,7 +346,6 @@ def main():
                 total_comments = len(icomments) + len(rcomments)
 
             # Reviewer workload estimate
-            issue_events = collect_issue_events(owner, repo, number)
             reviewer_workload_hours = estimate_reviewer_workload_hours(created_dt, reviews, issue_events)
 
         rows.append({
@@ -362,7 +354,7 @@ def main():
             "repo": repo,
             "number": number,
             "title": row.get("title"),
-            "user": row.get("user"),
+            "user": row.get("user") or row.get("user_login"),
             "user_id": row.get("user_id"),
             "state": row.get("state"),
             "created_at": row.get("created_at"),
@@ -379,9 +371,10 @@ def main():
             "deletions": deletions,
             "code_churn": code_churn,  # lines only
             "review_iterations": review_iterations,
+            "number_of_reviewers": number_of_reviewers,
             "total_comments": total_comments,
             "reviewer_workload_hours": reviewer_workload_hours,
-            "repo_url": row.get("repo_url"),
+            "repo_url": row.get("repo_url") or row.get("repo_api_url"),
             "html_url": row.get("html_url"),
         })
 
@@ -406,6 +399,7 @@ def main():
         "avg_changed_files": float(out_df["changed_files"].dropna().mean()) if total else None,
         "avg_code_churn": float(out_df["code_churn"].dropna().mean()) if total else None,
         "avg_review_iterations": float(out_df["review_iterations"].dropna().mean()) if total else None,
+        "avg_number_of_reviewers": float(out_df["number_of_reviewers"].dropna().mean()) if total else None,
         "avg_total_comments": float(out_df["total_comments"].dropna().mean()) if total else None,
         "avg_reviewer_workload_hours": float(out_df["reviewer_workload_hours"].dropna().mean()) if total else None,
     }

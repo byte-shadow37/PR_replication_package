@@ -1,9 +1,18 @@
-import argparse
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+
+# ===== Direct input configuration (no command line needed) =====
+FILE_A = "human_summary.csv"
+FILE_B = "mix_human_agent.csv"
+LABEL_A = "Human"   # e.g., "human"
+LABEL_B = "Curated"   # e.g., "agent"
+OUT_SUMMARY = "metrics_summary_human_agent.csv"
+OUT_LONG = "metrics_long_concat.csv"
+OUT_PLOTS = "plots"
+OUT_TABLE = "metrics_comparison_table_human_curated.csv"
 
 try:
     from scipy.stats import mannwhitneyu
@@ -22,11 +31,32 @@ NUMERIC_METRICS = [
     "deletions",
     "code_churn",
     "review_iterations",
+    "number_of_reviewers",
     "total_comments",
     "reviewer_workload_hours",
 ]
 
+
 BOOL_COLS = ["is_closed", "is_merged"]
+
+def _iqr_bounds(series: pd.Series, k: float = 1.5):
+    x = pd.Series(series).dropna()
+    if x.empty:
+        return np.nan, np.nan
+    q1 = x.quantile(0.25)
+    q3 = x.quantile(0.75)
+    iqr = q3 - q1
+    lower = q1 - k * iqr
+    upper = q3 + k * iqr
+    return lower, upper
+
+
+def _remove_outliers_iqr(series: pd.Series, k: float = 1.5) -> pd.Series:
+    x = pd.Series(series).dropna()
+    if x.empty:
+        return x
+    lower, upper = _iqr_bounds(x, k)
+    return x[(x >= lower) & (x <= upper)]
 
 def _quantiles(x):
     x = pd.Series(x).dropna()
@@ -117,8 +147,13 @@ def make_boxplots(df_all: pd.DataFrame, out_dir: Path, dataset_col: str = "datas
         if df_all[m].dropna().empty:
             continue
         groups = list(df_all.groupby(dataset_col))
-        data = [g[1][m].dropna().values for g in groups]
-        labels = [g[0] for g in groups]
+        labels = []
+        data = []
+        for label, gdf in groups:
+            cleaned = _remove_outliers_iqr(gdf[m], k=1.5).dropna().values
+            if len(cleaned) > 0:
+                labels.append(label)
+                data.append(cleaned)
         if sum(len(arr) for arr in data) == 0:
             continue
         plt.figure()
@@ -139,7 +174,7 @@ def make_boxplots(df_all: pd.DataFrame, out_dir: Path, dataset_col: str = "datas
         plt.legend(handles=handles, loc="best", frameon=False)
 
         plt.ylabel(m)
-        plt.title(f"Distribution of {m} by dataset")
+        plt.title(f"Distribution of {m} by dataset (IQR-cleaned, k=1.5)")
         fig_path = out_dir / f"box_{m}.png"
         plt.tight_layout()
         plt.savefig(fig_path)
@@ -152,66 +187,68 @@ def load_and_prepare(path: Path, dataset_name: str) -> pd.DataFrame:
     df = coerce_numeric(df, NUMERIC_METRICS)
     return df
 
+
 def build_comparison_table(df_all: pd.DataFrame, label_a: str, label_b: str, dataset_col: str = "dataset") -> pd.DataFrame:
     rows = []
-    # group data by dataset label
     g = {k: v for k, v in df_all.groupby(dataset_col)}
     A = g.get(label_a, pd.DataFrame())
     B = g.get(label_b, pd.DataFrame())
+
     for m in NUMERIC_METRICS:
         if m not in df_all.columns:
             continue
-        a = A[m] if m in A.columns else pd.Series(dtype=float)
-        b = B[m] if m in B.columns else pd.Series(dtype=float)
-        qa = _quantiles(a)
-        qb = _quantiles(b)
-        # p-value via Mann-Whitney U (two-sided) if SciPy available and both non-empty
-        if _HAS_SCIPY and a.dropna().size > 0 and b.dropna().size > 0:
+        a_raw = A[m] if m in A.columns else pd.Series(dtype=float)
+        b_raw = B[m] if m in B.columns else pd.Series(dtype=float)
+
+        # Raw summaries for min/Q1/Q3/Max
+        qa = _quantiles(a_raw)
+        qb = _quantiles(b_raw)
+
+        # Cleaned summaries for mean/median only (remove outliers via IQR 1.5x)
+        a_clean = _remove_outliers_iqr(a_raw, k=1.5)
+        b_clean = _remove_outliers_iqr(b_raw, k=1.5)
+        qa["mean"] = float(a_clean.mean()) if a_clean.size > 0 else np.nan
+        qa["median"] = float(a_clean.median()) if a_clean.size > 0 else np.nan
+        qb["mean"] = float(b_clean.mean()) if b_clean.size > 0 else np.nan
+        qb["median"] = float(b_clean.median()) if b_clean.size > 0 else np.nan
+
+        # Significance tests/effect size remain on RAW data unless specified otherwise
+        if _HAS_SCIPY and a_raw.dropna().size > 0 and b_raw.dropna().size > 0:
             try:
-                stat, p = mannwhitneyu(a.dropna(), b.dropna(), alternative="two-sided")
+                stat, p = mannwhitneyu(a_raw.dropna(), b_raw.dropna(), alternative="two-sided")
             except Exception:
                 p = np.nan
         else:
             p = np.nan
-        # Cliff's delta (directional)
-        delta = cliffs_delta(a, b)
+        delta = cliffs_delta(a_raw, b_raw)
         eff_label = label_effect_size(abs(delta))
+
         rows.append({
             "Metric": m,
             f"{label_a} min": qa["min"],
             f"{label_a} Q1": qa["q1"],
-            f"{label_a} Median": qa["median"],
-            f"{label_a} Mean": qa["mean"],
+            f"{label_a} Median": qa["median"],  # cleaned
+            f"{label_a} Mean": qa["mean"],      # cleaned
             f"{label_a} Q3": qa["q3"],
             f"{label_a} Max": qa["max"],
             f"{label_b} min": qb["min"],
             f"{label_b} Q1": qb["q1"],
-            f"{label_b} Median": qb["median"],
-            f"{label_b} Mean": qb["mean"],
+            f"{label_b} Median": qb["median"],  # cleaned
+            f"{label_b} Mean": qb["mean"],      # cleaned
             f"{label_b} Q3": qb["q3"],
             f"{label_b} Max": qb["max"],
             "P-value": p,
             "Effect size (delta)": delta,
             "Effect label": eff_label,
         })
+
     return pd.DataFrame(rows)
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--file-a", required=True, help="Path to first metrics CSV")
-    ap.add_argument("--file-b", required=True, help="Path to second metrics CSV")
-    ap.add_argument("--label-a", default=None, help="Label for dataset A (defaults to filename)")
-    ap.add_argument("--label-b", default=None, help="Label for dataset B (defaults to filename)")
-    ap.add_argument("--out-summary", default="metrics_summary_by_file.csv", help="Output CSV for per-file summary")
-    ap.add_argument("--out-long", default="metrics_long_concat.csv", help="Output CSV for concatenated long form")
-    ap.add_argument("--out-plots", default="plots", help="Output directory for box plots")
-    ap.add_argument("--out-table", default="metrics_comparison_table.csv", help="Output CSV for side-by-side comparison table")
-    args = ap.parse_args()
-
-    pA = Path(args.file_a)
-    pB = Path(args.file_b)
-    label_a = args.label_a or pA.name
-    label_b = args.label_b or pB.name
+    pA = Path(FILE_A)
+    pB = Path(FILE_B)
+    label_a = LABEL_A or pA.name
+    label_b = LABEL_B or pB.name
 
     df_a = load_and_prepare(pA, label_a)
     df_b = load_and_prepare(pB, label_b)
@@ -222,9 +259,9 @@ def main():
     sum_b = summarize_dataset(df_b, label_b)
     summary_df = pd.DataFrame([sum_a, sum_b])
 
-    out_summary = Path(args.out_summary)
-    out_long = Path(args.out_long)
-    out_plots = Path(args.out_plots)
+    out_summary = Path(OUT_SUMMARY)
+    out_long = Path(OUT_LONG)
+    out_plots = Path(OUT_PLOTS)
 
     summary_df.to_csv(out_summary, index=True)
     df_all.to_csv(out_long, index=False)
@@ -232,7 +269,7 @@ def main():
     make_boxplots(df_all, out_plots)
 
     comp_df = build_comparison_table(df_all, label_a, label_b)
-    comp_out = Path(args.out_table)
+    comp_out = Path(OUT_TABLE)
     comp_df.to_csv(comp_out, index=False)
     print(f"[OK] Wrote summary: {out_summary.resolve()}")
     print(f"[OK] Wrote long form: {out_long.resolve()}")
