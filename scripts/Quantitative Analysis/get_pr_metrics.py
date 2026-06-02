@@ -11,7 +11,7 @@ import pandas as pd
 GITHUB_TOKEN = ""
 
 CSV_PATH = ""
-OUT_FULL = "mix_summary.csv"
+OUT_FULL = "test_summary.csv"
 OUT_SUMMARY = "test.csv"
 
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
@@ -235,7 +235,6 @@ def main():
         print(f"[ERROR] CSV missing columns: {missing}", file=sys.stderr)
         sys.exit(1)
 
-    # 不再按 id 过滤，直接使用整个 CSV
     subset = df.copy()
     subset = subset.dropna(subset=["id", "number", "repo_url", "html_url"]).copy()
     if subset.empty:
@@ -248,7 +247,15 @@ def main():
     subset["body_length"]   = subset["body"].fillna("").astype(str).str.len()
 
     rows = []
-    for _, row in subset.iterrows():
+    total_prs_to_process = len(subset)
+    print(f"[INFO] Loaded {total_prs_to_process} PRs from CSV.", flush=True)
+
+    for idx, (_, row) in enumerate(subset.iterrows(), start=1):
+        print(
+            f"[INFO] Processing PR {idx}/{total_prs_to_process}: "
+            f"id={row.get('id')} number={row.get('number')} url={row.get('html_url')}",
+            flush=True
+        )
         try:
             pid = int(row["id"])
             number = int(row["number"])
