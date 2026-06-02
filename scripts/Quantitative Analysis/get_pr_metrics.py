@@ -1,39 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Fetch comprehensive PR metrics (including code churn line counts) for a given set of PR IDs.
-
-Inputs:
-- CSV: /mnt/data/human_pull_request.csv  (must contain columns: id, number, repo_url, html_url, created_at, closed_at, merged_at, state, body)
-- GitHub Token: set env var GITHUB_TOKEN="..."
-- ID list: hardcoded below (can override via CLI --ids)
-
-Outputs:
-- /mnt/data/pr_metrics_full.csv     (row per PR with metrics)
-- /mnt/data/pr_metrics_summary.csv  (overall summary: acceptance rate, averages, etc.)
-
-Metrics per PR:
-- acceptance (closed_or_merged: bool, merged: bool, state)
-- time_to_close_hours / days (prefer merged_at else closed_at)
-- body_length (characters)
-- commits (count)          [from PR detail, field: "commits"]
-- changed_files (count)    [from PR detail, field: "changed_files"]
-- additions, deletions, code_churn (additions+deletions)  [from PR detail]
-- review_iterations        [# of reviews from /pulls/{number}/reviews]
-- total_comments           [issue comments + review comments]
-- number_of_reviewers      [unique reviewers seen in review submissions or review requests]
-- reviewer_workload_hours  [avg time from review_requested -> review submitted, per review]
-
-Reviewer workload notes:
-- We approximate by pairing review_requested events with subsequent reviews from the same reviewer.
-- If no matching review_requested event is found, we fall back to (review.submitted_at - PR.created_at).
-- This is an approximation due to REST API constraints. For exact timelines, consider GraphQL timeline queries.
-
-CLI:
-    python get_pr_metrics.py --ids 2625652637,2474497456,...
-or  python get_pr_metrics.py              (uses hardcoded IDS below)
-
-"""
 import os
 import sys
 import time
@@ -46,7 +10,7 @@ import requests
 import pandas as pd
 GITHUB_TOKEN = ""
 
-CSV_PATH = "experiment_mix_merged.csv"
+CSV_PATH = ""
 OUT_FULL = "mix_summary.csv"
 OUT_SUMMARY = "test.csv"
 
